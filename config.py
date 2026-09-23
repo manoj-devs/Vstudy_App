@@ -2,11 +2,16 @@
 #  VSTUDY / TELEGRAM SETTINGS (from environment)
 # ─────────────────────────────────────────
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
 # Load environment variables from .env file if it exists
 load_dotenv()
+
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8", errors="replace")
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -35,6 +40,6 @@ CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", str(CHECK_INTERVAL)))
 SAVE_DEBUG_ARTIFACTS = os.getenv("SAVE_DEBUG_ARTIFACTS", "false").strip().lower() in {"1", "true", "yes"}
 
 # Debug: Print environment variable presence without exposing secrets
-print(f"DEBUG → VSTUDY_PROFILE_DIR: {VSTUDY_PROFILE_DIR}")
-print(f"DEBUG → TELEGRAM_TOKEN set: {bool(TELEGRAM_TOKEN)}")
-print(f"DEBUG → TELEGRAM_CHAT_ID set: {bool(TELEGRAM_CHAT_ID)}")
+print(f"DEBUG -> VSTUDY_PROFILE_DIR: {VSTUDY_PROFILE_DIR}")
+print(f"DEBUG -> TELEGRAM_TOKEN set: {bool(TELEGRAM_TOKEN)}")
+print(f"DEBUG -> TELEGRAM_CHAT_ID set: {bool(TELEGRAM_CHAT_ID)}")

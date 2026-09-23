@@ -23,4 +23,3 @@ ENV HEADLESS=true \
     DATABASE_NAME=/data/results.db
 
 CMD ["python", "monitor.py"]
-# Railway deployment trigger - latest VStudy code

@@ -353,6 +353,17 @@ class VStudyScraper:
         return True
 
     def _find_view_details_element(self, driver):
+        actionable = driver.find_elements(
+            By.XPATH,
+            "//*[self::button or self::a][normalize-space()='View Details']"
+        )
+        for element in actionable:
+            try:
+                if element.is_displayed() and element.is_enabled():
+                    return element
+            except StaleElementReferenceException:
+                continue
+
         candidates = driver.find_elements(
             By.XPATH,
             "//*[self::button or self::a or self::div or self::span or self::p or self::li]"
@@ -361,7 +372,7 @@ class VStudyScraper:
         for element in candidates:
             try:
                 text = self._safe_text(element)
-                if "view details" in text.lower():
+                if text.lower() == "view details":
                     matches.append((element, text))
             except StaleElementReferenceException:
                 continue

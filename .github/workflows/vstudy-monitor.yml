@@ -1,0 +1,55 @@
+name: VStudy monitor
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
+
+concurrency:
+  group: vstudy-monitor
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check-results:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    env:
+      VSTUDY_URL: https://vstudy.saveetha.com/
+      VSTUDY_PROFILE_DIR: C:\vstudy-data\vstudy_chrome_profile
+      CHROME_RUNTIME_DIR: C:\vstudy-data\chrome-runtime
+      DATABASE_NAME: C:\vstudy-data\results.db
+      HEADLESS: "true"
+      UNATTENDED: "true"
+      RUN_FOREVER: "false"
+      CHECK_INTERVAL: "300"
+      SAVE_DEBUG_ARTIFACTS: "false"
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: python -m pip install -r requirements.txt
+
+      - name: Prepare persistent directories
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path C:\vstudy-data\vstudy_chrome_profile | Out-Null
+          New-Item -ItemType Directory -Force -Path C:\vstudy-data\chrome-runtime | Out-Null
+
+      - name: Run one monitor cycle
+        shell: pwsh
+        run: python monitor.py
