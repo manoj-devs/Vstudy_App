@@ -320,13 +320,6 @@ class VStudyScraper:
             raise RuntimeError("No browser driver available")
 
         print("[*] Opening profile...")
-        driver.get(PROFILE_URL)
-
-        if self._is_authentication_required(driver):
-            self._log_profile_page_failure(driver)
-            raise AuthenticationRequiredError(
-                "VStudy authentication is required before the profile page can be opened."
-            )
 
         def _profile_page_ready(d):
             url = (d.current_url or "").lower()
@@ -342,15 +335,40 @@ class VStudyScraper:
             ]
             return any(marker in page for marker in markers)
 
-        try:
-            WebDriverWait(driver, self.wait_timeout).until(_profile_page_ready)
-        except TimeoutException:
-            self._log_profile_page_failure(driver)
-            print("[✗] Profile page unavailable")
-            raise
+        for attempt in range(2):
+            driver.get(PROFILE_URL)
 
-        print("[✓] Profile page loaded")
-        return True
+            if self._is_authentication_required(driver):
+                self._log_profile_page_failure(driver)
+                raise AuthenticationRequiredError(
+                    "VStudy authentication is required before the profile page can be opened."
+                )
+
+            try:
+                WebDriverWait(driver, self.wait_timeout).until(_profile_page_ready)
+                print("[✓] Profile page loaded")
+                return True
+            except TimeoutException:
+                if "/dashboard" in (driver.current_url or "").lower() and attempt == 0:
+                    print("[!] Profile route redirected to the dashboard; using the Profile control...")
+                    profile_button = WebDriverWait(driver, self.wait_timeout).until(
+                        lambda d: d.find_element(By.XPATH, "//button[.//img[@alt='Profile']]")
+                    )
+                    try:
+                        profile_button.click()
+                    except Exception:
+                        driver.execute_script("arguments[0].click();", profile_button)
+                    try:
+                        WebDriverWait(driver, self.wait_timeout).until(_profile_page_ready)
+                        print("[✓] Profile page loaded")
+                        return True
+                    except TimeoutException:
+                        pass
+                break
+
+        self._log_profile_page_failure(driver)
+        print("[✗] Profile page unavailable")
+        raise TimeoutException("VStudy profile page did not load")
 
     def _find_view_details_element(self, driver):
         actionable = driver.find_elements(

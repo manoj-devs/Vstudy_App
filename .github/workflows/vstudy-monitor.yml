@@ -21,7 +21,7 @@ jobs:
       VSTUDY_PROFILE_DIR: C:\vstudy-data\vstudy_chrome_profile
       CHROME_RUNTIME_DIR: C:\vstudy-data\chrome-runtime
       DATABASE_NAME: C:\vstudy-data\results.db
-      HEADLESS: "true"
+      HEADLESS: "false"
       UNATTENDED: "true"
       RUN_FOREVER: "false"
       CHECK_INTERVAL: "300"

@@ -90,7 +90,7 @@ For a one-time local check, use `python test_vstudy_login.py`. A successful chec
 
 ## GitHub Actions deployment
 
-GitHub-hosted runners are temporary and cannot retain the authenticated Chrome profile between scheduled runs. Use a self-hosted Windows runner that stays online. The included workflow runs one check every 15 minutes and can also be started manually from the Actions tab.
+GitHub-hosted runners are temporary and cannot retain the authenticated Chrome profile between scheduled runs. Use a self-hosted Windows runner that stays online and runs in an interactive Windows session because the verified authenticated setup uses a visible Chrome browser. The included workflow runs one check every 15 minutes and can also be started manually from the Actions tab.
 
 1. Push this repository to GitHub.
 2. In the repository, open **Settings > Actions > Runners > New self-hosted runner**, choose **Windows x64**, and follow GitHub's commands on the machine that will stay online. Add the labels `self-hosted`, `Windows`, and `X64` if GitHub does not add them automatically.
