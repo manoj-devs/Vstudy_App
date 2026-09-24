@@ -1,0 +1,30 @@
+services:
+  vstudy-auth:
+    profiles: ["auth"]
+    build: .
+    image: ${VSTUDY_IMAGE:-vstudy-monitor:local}
+    init: true
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DISPLAY: :99
+      VSTUDY_URL: ${VSTUDY_URL:-https://vstudy.saveetha.com/}
+      VSTUDY_PROFILE_DIR: /data/vstudy_chrome_profile
+    command:
+      - /bin/sh
+      - -c
+      - >-
+        Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset
+        >/tmp/xvfb.log 2>&1 &
+        fluxbox >/tmp/fluxbox.log 2>&1 &
+        chromium --no-sandbox --disable-dev-shm-usage
+        --user-data-dir=/data/vstudy_chrome_profile
+        --profile-directory=Default --start-maximized --no-first-run
+        --no-default-browser-check "$${VSTUDY_URL}" >/tmp/chromium.log 2>&1 &
+        exec x11vnc -display :99 -localhost -forever -shared -rfbport 5900
+        -rfbauth /data/vnc.passwd -noxdamage
+    ports:
+      - "127.0.0.1:5901:5900"
+    volumes:
+      - ${VSTUDY_DATA_DIR:-./data}:/data

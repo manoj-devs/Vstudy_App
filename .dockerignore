@@ -4,6 +4,7 @@
 __pycache__/
 *.py[cod]
 vstudy_chrome_profile/
+data/
 vstudy_debug.html
 vstudy_after_all.png
 vstudy_view_details_missing.png

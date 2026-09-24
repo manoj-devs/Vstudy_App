@@ -1,0 +1,30 @@
+services:
+  vstudy-monitor:
+    build: .
+    image: ${VSTUDY_IMAGE:-vstudy-monitor:local}
+    command: ["python", "monitor.py"]
+    restart: unless-stopped
+    init: true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,time; p=os.environ['HEARTBEAT_FILE']; age=time.time()-os.path.getmtime(p); raise SystemExit(0 if age < 900 else 1)"]
+      interval: 60s
+      timeout: 10s
+      start_period: 120s
+      retries: 3
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      VSTUDY_URL: ${VSTUDY_URL:-https://vstudy.saveetha.com/}
+      VSTUDY_PROFILE_DIR: /data/vstudy_chrome_profile
+      CHROME_RUNTIME_DIR: /tmp/chrome
+      DATABASE_NAME: /data/results.db
+      HEARTBEAT_FILE: /data/monitor.heartbeat
+      HEARTBEAT_TIMEOUT: ${HEARTBEAT_TIMEOUT:-900}
+      HEADLESS: ${HEADLESS:-true}
+      UNATTENDED: ${UNATTENDED:-true}
+      RUN_FOREVER: ${RUN_FOREVER:-true}
+      CHECK_INTERVAL: ${CHECK_INTERVAL:-300}
+      SAVE_DEBUG_ARTIFACTS: ${SAVE_DEBUG_ARTIFACTS:-false}
+    volumes:
+      - ${VSTUDY_DATA_DIR:-./data}:/data

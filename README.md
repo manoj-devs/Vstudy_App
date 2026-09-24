@@ -57,66 +57,153 @@ pip install -r requirements.txt
 python monitor.py
 ```
 
-## Deployment
+## Cloud deployment
 
-This repository is a background Selenium worker, not a web frontend. It needs a running Chromium process, a persistent authenticated Chrome profile, and persistent SQLite storage. Netlify cannot run the included Docker image or a long-running Python process, and its serverless functions do not provide the persistent browser profile this scraper requires.
+Use an always-on Ubuntu 24.04 VPS with Docker Compose. This is a better fit than a scheduled or serverless host because Selenium needs Chromium, the authenticated Chrome profile must persist, and the worker must run continuously. The VPS runs the monitor 24/7; GitHub Actions only uploads new code and restarts the service.
 
-Netlify can be used later for a frontend or a small serverless trigger, but the monitor itself must run on a host that supports containers or a scheduled worker with persistent storage. Do not deploy this worker to Netlify as a static site; it would not perform checks.
+The Compose service mounts `/opt/vstudy-app/data` into the container as `/data`. That directory contains both `vstudy_chrome_profile/` and `results.db`, so authentication and notification history survive container rebuilds and VM reboots. `restart: unless-stopped` restarts a crashed container. A single in-process watchdog exits the monitor when its heartbeat is stale, so Docker also restarts hung Selenium sessions without creating a second monitor process.
 
-For a compatible container host, build the included `Dockerfile` and provide a persistent volume mounted at `/data`. Set:
+### 1. Create the VPS
+
+Create an Ubuntu 24.04 server with at least 2 vCPU, 4 GB RAM, and 20 GB of disk. Allow SSH (TCP 22) from your IP and keep all other inbound ports closed. SSH to the server and install Docker:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl rsync
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker "$USER"
+exit
+```
+
+Reconnect, then create the deployment directories:
+
+```bash
+sudo mkdir -p /opt/vstudy-app/data/vstudy_chrome_profile
+sudo chown -R "$USER":"$USER" /opt/vstudy-app
+```
+
+### 2. Configure the server environment
+
+After the first GitHub Actions deployment uploads the repository, create `/opt/vstudy-app/.env` on the VPS. Never commit this file:
+
+```bash
+cd /opt/vstudy-app
+cp .env.example .env
+nano .env
+```
+
+Set these values, including the real Telegram values only on the server:
 
 ```text
+VSTUDY_URL=https://vstudy.saveetha.com/
+TELEGRAM_TOKEN=replace_on_server_only
+TELEGRAM_CHAT_ID=replace_on_server_only
+VSTUDY_DATA_DIR=/opt/vstudy-app/data
 HEADLESS=true
 UNATTENDED=true
 RUN_FOREVER=true
-VSTUDY_PROFILE_DIR=/data/vstudy_chrome_profile
-DATABASE_NAME=/data/results.db
 CHECK_INTERVAL=300
+HEARTBEAT_TIMEOUT=900
 SAVE_DEBUG_ARTIFACTS=false
-VSTUDY_URL=https://vstudy.saveetha.com/
-TELEGRAM_TOKEN=your_bot_token
-TELEGRAM_CHAT_ID=your_chat_id
 ```
 
-Before unattended deployment, copy an already authenticated Chrome profile into the persistent volume at `/data/vstudy_chrome_profile`. If the Google session expires, the profile must be re-authenticated and the volume updated. Without that profile, the service fails clearly instead of waiting for a human prompt.
+The Compose file supplies the container paths for `VSTUDY_PROFILE_DIR`, `DATABASE_NAME`, and `HEARTBEAT_FILE`. Do not put those secrets in GitHub Actions or source control.
 
-When re-authentication is needed, the monitor prints `[AUTH REQUIRED]` in the worker logs and sends one Telegram warning. It keeps retrying at `CHECK_INTERVAL` and sends no duplicate warning until authentication works again. This lets you know exactly why no new results are being collected.
+### 3. Authenticate directly on the VPS
 
-The warning state is stored in the SQLite `monitor_state` table, so a worker restart does not cause repeated alerts. A successful scrape resets the state and allows a new warning if authentication expires later. Set `SAVE_DEBUG_ARTIFACTS=true` only when troubleshooting; it is disabled by default for live deployments.
+Do not copy a Windows Chrome profile. Windows browser cookies can be encrypted with Windows-specific keys and may not work in Linux Chromium. Instead, create the authenticated profile directly in the VPS container using the opt-in graphical service.
+
+First, stop the monitor so Chromium is the only process using the profile:
+
+```bash
+cd /opt/vstudy-app
+docker compose stop vstudy-monitor
+```
+
+Create a VNC password file in the persistent data directory. The command prompts for the password without putting it in shell history:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.auth.yml --profile auth \
+	run --rm --entrypoint x11vnc vstudy-auth -storepasswd /data/vnc.passwd
+chmod 600 data/vnc.passwd
+```
+
+Start the temporary Chromium and VNC service:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.auth.yml --profile auth \
+	up -d vstudy-auth
+docker compose -f docker-compose.yml -f docker-compose.auth.yml --profile auth \
+	logs --tail=50 vstudy-auth
+```
+
+The VNC server is bound to VPS localhost only. It is not publicly reachable. From Windows, open a second PowerShell terminal and keep this SSH tunnel running:
+
+```powershell
+ssh -N -L 5901:127.0.0.1:5901 YOUR_USER@YOUR_SERVER
+```
+
+Connect a VNC client such as TigerVNC or RealVNC to `127.0.0.1:5901` and enter the VNC password. In the Chromium window, complete the Google/VStudy login manually. Confirm that the browser reaches the VStudy dashboard, then open the profile page and confirm that **View Details** is visible. This browser is using `/data/vstudy_chrome_profile`, so the authenticated profile is created directly on Linux in the persistent volume.
+
+After the login succeeds, close the VNC client and stop/remove the temporary graphical service before starting the monitor:
+
+```bash
+cd /opt/vstudy-app
+docker compose -f docker-compose.yml -f docker-compose.auth.yml --profile auth \
+	stop vstudy-auth
+docker compose -f docker-compose.yml -f docker-compose.auth.yml --profile auth \
+	rm -f vstudy-auth
+docker compose up -d vstudy-monitor
+```
+
+The graphical service is disabled unless the `auth` profile is explicitly selected. The monitor uses the same profile headlessly with Selenium after the graphical service is stopped. If Google authentication expires later, repeat this VPS-side procedure; do not run the auth service and monitor at the same time.
+
+### 4. Configure GitHub Actions deployment
+
+Generate a dedicated deploy key on your local machine:
+
+```powershell
+ssh-keygen -t ed25519 -f "$HOME\.ssh\vstudy_deploy" -C "vstudy-github-actions"
+```
+
+Append `vstudy_deploy.pub` to `/home/YOUR_USER/.ssh/authorized_keys` on the VPS. In the repository's **Settings > Secrets and variables > Actions**, add:
+
+```text
+VPS_HOST              VPS public IP or DNS name
+VPS_USER              Linux deployment username
+VPS_SSH_PRIVATE_KEY  complete contents of vstudy_deploy
+VPS_KNOWN_HOSTS      output of ssh-keyscan -H VPS_HOST
+```
+
+The workflow in `.github/workflows/vstudy-monitor.yml` runs on GitHub-hosted Ubuntu, uploads the application while preserving `.env` and `data/`, and runs `docker compose up -d --build`. It no longer requires a Windows self-hosted runner and does not use Telegram secrets in the workflow.
+
+Trigger the workflow once from **Actions > VStudy monitor deployment > Run workflow**. The VPS directory must exist before this first upload.
+
+### 5. Start and verify the service
+
+After `.env` and the VPS-created profile are installed, start the service on the VPS:
+
+```bash
+cd /opt/vstudy-app
+docker compose up -d --build
+docker compose ps
+docker compose logs --tail=100 -f vstudy-monitor
+```
+
+The health status should become `healthy` after the first monitor cycle. The container restarts if Python exits. If Selenium hangs, the in-process watchdog sees that `/data/monitor.heartbeat` is older than `HEARTBEAT_TIMEOUT` seconds and exits Python; Docker then restarts the same container. Useful checks are:
+
+```bash
+docker compose exec vstudy-monitor sh -c 'stat /data/monitor.heartbeat && test -f /data/results.db'
+docker inspect --format '{{.State.Health.Status}}' "$(docker compose ps -q vstudy-monitor)"
+docker compose restart
+docker compose down
+```
+
+Use `docker compose stop` for maintenance. Do not delete `/opt/vstudy-app/data`; it holds the authenticated profile and database.
 
 There is no reliable browser-only way to guarantee zero human interaction forever with Google login. A truly zero-interaction design would require VStudy to provide an official API or a long-lived service credential. Do not deploy Google passwords or CAPTCHA workarounds.
 
 For a one-time local check, use `python test_vstudy_login.py`. A successful check prints `Found ... course(s)` and exits with code 0; an authentication or scraping failure exits with code 1.
-
-## GitHub Actions deployment
-
-GitHub-hosted runners are temporary and cannot retain the authenticated Chrome profile between scheduled runs. Use a self-hosted Windows runner that stays online and runs in an interactive Windows session because the verified authenticated setup uses a visible Chrome browser. The included workflow runs one check every 15 minutes and can also be started manually from the Actions tab.
-
-1. Push this repository to GitHub.
-2. In the repository, open **Settings > Actions > Runners > New self-hosted runner**, choose **Windows x64**, and follow GitHub's commands on the machine that will stay online. Add the labels `self-hosted`, `Windows`, and `X64` if GitHub does not add them automatically.
-3. Install Chrome on that runner and create these directories:
-
-```text
-C:\vstudy-data\vstudy_chrome_profile
-C:\vstudy-data\chrome-runtime
-```
-
-4. On the runner machine, authenticate the profile once with a visible browser:
-
-```powershell
-$env:VSTUDY_PROFILE_DIR = 'C:\vstudy-data\vstudy_chrome_profile'
-$env:CHROME_RUNTIME_DIR = 'C:\vstudy-data\chrome-runtime'
-$env:HEADLESS = 'false'
-$env:UNATTENDED = 'false'
-python test_vstudy_login.py
-```
-
-Complete the Google login when prompted. The test must report `Found 17 course(s)`.
-
-5. In **Settings > Secrets and variables > Actions**, add `TELEGRAM_TOKEN` and `TELEGRAM_CHAT_ID` as repository secrets.
-6. Open **Actions > VStudy monitor > Run workflow** for the first check. Later checks run every 15 minutes while the self-hosted runner is online.
-
-The workflow stores the database and Chrome profile outside the checkout at `C:\vstudy-data`, so repository cleanup does not delete the monitor history or login session. If the runner is offline, scheduled checks wait until a runner is available; GitHub Actions does not provide monitoring while the machine is powered off.
 
 ## Notes
 

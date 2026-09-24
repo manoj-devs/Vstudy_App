@@ -38,7 +38,7 @@ class VStudyScraper:
 
     def _log_chrome_diagnostics(self, chromium_binary, chromedriver_binary):
         for label, binary in (
-            ("Chromium", chromium_binary),
+            ("Browser", chromium_binary),
             ("ChromeDriver", chromedriver_binary),
         ):
             if not binary:
@@ -58,7 +58,7 @@ class VStudyScraper:
             print(f"[DEBUG] {label} path: {binary}")
             print(f"[DEBUG] {label} version: {version}")
 
-    def _build_chrome_options(self, profile_dir, runtime_dir, chromium_binary):
+    def _build_chrome_options(self, profile_dir, runtime_dir, browser_binary):
         options = Options()
         options.add_argument(f"--user-data-dir={profile_dir}")
         options.add_argument(f"--disk-cache-dir={runtime_dir}")
@@ -69,8 +69,8 @@ class VStudyScraper:
         options.add_argument("--disable-notifications")
         options.add_argument("--disable-popup-blocking")
         options.add_argument("--disable-blink-features=AutomationControlled")
-        if chromium_binary:
-            options.binary_location = chromium_binary
+        if browser_binary:
+            options.binary_location = browser_binary
         if HEADLESS:
             options.add_argument("--headless=new")
             options.add_argument("--no-sandbox")
@@ -184,32 +184,35 @@ class VStudyScraper:
         if not os.access(runtime_dir, os.W_OK):
             raise PermissionError(f"Chrome runtime directory is not writable: {runtime_dir}")
 
-        chromium_binary = next(
-            (shutil.which(name) for name in ("chromium", "chromium-browser", "google-chrome") if shutil.which(name)),
+        browser_binary = next(
+            (
+                shutil.which(name)
+                for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser")
+                if shutil.which(name)
+            ),
             None,
         )
         chromedriver_binary = shutil.which("chromedriver")
-        self._log_chrome_diagnostics(chromium_binary, chromedriver_binary)
-        options = self._build_chrome_options(profile_dir, runtime_dir, chromium_binary)
+        self._log_chrome_diagnostics(browser_binary, chromedriver_binary)
+        if not browser_binary:
+            raise RuntimeError("No supported Chrome/Chromium browser was found on the runner")
+        options = self._build_chrome_options(profile_dir, runtime_dir, browser_binary)
         chromedriver_log_path = None
+        driver_started = False
         try:
-            if chromedriver_binary:
-                log_fd, chromedriver_log_path = tempfile.mkstemp(
-                    prefix="chromedriver-",
-                    suffix=".log",
-                    dir=runtime_dir,
-                )
-                os.close(log_fd)
-            service = (
-                Service(chromedriver_binary, log_output=chromedriver_log_path)
-                if chromedriver_binary
-                else None
+            log_fd, chromedriver_log_path = tempfile.mkstemp(
+                prefix="chromedriver-",
+                suffix=".log",
+                dir=runtime_dir,
             )
+            os.close(log_fd)
+            service = Service(log_output=chromedriver_log_path)
             self._cleanup_stale_profile_locks(profile_dir)
             self._log_profile_startup_preflight(profile_dir, runtime_dir)
             self.driver = webdriver.Chrome(service=service, options=options)
+            driver_started = True
         except WebDriverException as exc:
-            print("[✗] ChromeDriver failed to start Chromium with the persistent profile")
+            print("[✗] ChromeDriver failed to start the selected browser with the fresh profile")
             print(f"[DEBUG] Chrome user-data directory: {profile_dir}")
             print(f"[DEBUG] Chrome runtime/cache directory: {runtime_dir}")
             print(f"[DEBUG] Chrome options: {options.arguments}")
@@ -226,11 +229,13 @@ class VStudyScraper:
                     print(f"[DEBUG] Could not read ChromeDriver log: {log_exc}")
             raise
         finally:
-            if chromedriver_log_path:
+            if chromedriver_log_path and driver_started:
                 try:
                     os.remove(chromedriver_log_path)
                 except OSError:
                     pass
+            elif chromedriver_log_path:
+                print(f"[DEBUG] ChromeDriver log retained at: {chromedriver_log_path}")
 
         print(f"[*] Using Chrome user-data directory: {profile_dir}")
         return self.driver

@@ -33,6 +33,8 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 # ─────────────────────────────────────────
 CHECK_INTERVAL = 5 * 60
 DATABASE_NAME = os.getenv("DATABASE_NAME", str(BASE_DIR / "results.db"))
+HEARTBEAT_FILE = os.getenv("HEARTBEAT_FILE", str(BASE_DIR / "monitor.heartbeat"))
+HEARTBEAT_TIMEOUT = int(os.getenv("HEARTBEAT_TIMEOUT", str(15 * 60)))
 HEADLESS = os.getenv("HEADLESS", "false").strip().lower() in {"1", "true", "yes"}
 UNATTENDED = os.getenv("UNATTENDED", "false").strip().lower() in {"1", "true", "yes"}
 RUN_FOREVER = os.getenv("RUN_FOREVER", "false").strip().lower() in {"1", "true", "yes"}
