@@ -121,7 +121,9 @@ dmypy.json
 .env
 config_local.py
 vstudy_chrome_profile/
+data/
 vstudy_debug.html
 vstudy_after_all.png
 vstudy_view_details_missing.png
 *.db
+vstudy-auth-state.enc

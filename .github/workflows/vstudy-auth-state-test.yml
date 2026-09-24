@@ -1,0 +1,47 @@
+name: VStudy authentication-state experiment
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  auth-state-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Chromium
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium chromium-driver
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Materialize encrypted authentication state
+        env:
+          AUTH_STATE_B64: ${{ secrets.VSTUDY_AUTH_STATE_B64 }}
+        run: |
+          test -n "$AUTH_STATE_B64" || { echo "VSTUDY_AUTH_STATE_B64 is not configured"; exit 1; }
+          printf '%s' "$AUTH_STATE_B64" | base64 --decode > "$RUNNER_TEMP/vstudy-auth-state.enc"
+          test -s "$RUNNER_TEMP/vstudy-auth-state.enc"
+
+      - name: Test encrypted state in a fresh Chromium profile
+        env:
+          VSTUDY_STATE_KEY: ${{ secrets.VSTUDY_STATE_KEY }}
+        run: |
+          test -n "$VSTUDY_STATE_KEY" || { echo "VSTUDY_STATE_KEY is not configured"; exit 1; }
+          python test_vstudy_auth_state.py --state-file "$RUNNER_TEMP/vstudy-auth-state.enc"
+
+      - name: Remove temporary authentication state
+        if: ${{ always() }}
+        run: rm -f "$RUNNER_TEMP/vstudy-auth-state.enc"
