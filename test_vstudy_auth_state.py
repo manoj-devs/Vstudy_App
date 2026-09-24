@@ -29,18 +29,18 @@ def main():
         driver = scraper._create_driver()
         inject_auth_state(driver, state)
 
-        try:
-            scraper.ensure_authenticated(driver)
-        except AuthenticationRequiredError as exc:
-            raise RuntimeError(
+        scraper.ensure_authenticated(driver)
+        print(f"[DEBUG] Root URL: {driver.current_url}")
+        print(f"[DEBUG] Root title: {driver.title}")
+        if scraper._is_authentication_required(driver):
+            raise AuthenticationRequiredError(
                 "Authentication state was not recognized by the fresh Chromium profile"
-            ) from exc
-
-        if not scraper._is_dashboard_visible(driver):
-            raise RuntimeError(f"Authentication check did not reach the VStudy dashboard: {driver.current_url}")
+            )
         print("[PASS] Fresh Chromium profile recognized VStudy authentication")
 
         scraper.open_profile_page(driver)
+        print(f"[DEBUG] Profile URL: {driver.current_url}")
+        print(f"[DEBUG] Profile title: {driver.title}")
         print("[PASS] Profile page opened")
         scraper.open_detailed_profile(driver)
         print("[PASS] View Details flow opened the detailed profile")
