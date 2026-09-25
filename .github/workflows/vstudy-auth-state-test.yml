@@ -25,6 +25,10 @@ jobs:
             echo "No standalone ChromeDriver found; Selenium Manager will resolve it"
           fi
 
+      - name: Report GitHub runner public IP
+        run: |
+          echo "GitHub runner public IPv4: $(curl -4 -fsS https://api.ipify.org)"
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
