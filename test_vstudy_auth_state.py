@@ -152,8 +152,15 @@ def main():
 
         inject_auth_state(driver, state)
 
-        scraper.ensure_authenticated(driver)
+        authentication_error = None
 
+        try:
+            scraper.ensure_authenticated(driver)
+        except Exception as exc:
+            authentication_error = exc
+            print(f"[DEBUG] ensure_authenticated raised: {exc}")
+
+        # Allow VStudy time to finish auth/API requests even when authentication fails.
         time.sleep(5)
 
         try:
@@ -180,6 +187,9 @@ def main():
 
         print(f"[DEBUG] Root URL: {driver.current_url}")
         print(f"[DEBUG] Root title: {driver.title}")
+
+        if authentication_error is not None:
+            raise authentication_error
 
         if scraper._is_authentication_required(driver):
             raise AuthenticationRequiredError(
