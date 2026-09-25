@@ -150,7 +150,7 @@ def main():
             },
         )
 
-        inject_auth_state(driver)
+        inject_auth_state(driver, state)
 
         scraper.ensure_authenticated(driver)
 
