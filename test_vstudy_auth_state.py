@@ -250,6 +250,30 @@ def main():
                 f"[DEBUG] Could not inspect cookies after injection: {exc}"
             )
 
+        # Snapshot the refresh-cookie value internally so we can detect server-side
+        # rotation/replacement without ever printing the secret itself.
+        def get_refresh_cookie_value():
+            try:
+                cookies = driver.execute_cdp_cmd(
+                    "Network.getAllCookies", {}
+                ).get("cookies", [])
+                for cookie in cookies:
+                    if (
+                        cookie.get("name") == "lms_refresh_token"
+                        and "saveetha.com"
+                        in str(cookie.get("domain", "")).lower()
+                    ):
+                        return cookie.get("value")
+            except Exception:
+                return None
+            return None
+
+        refresh_cookie_before_auth = get_refresh_cookie_value()
+        print(
+            "[DEBUG] Refresh cookie present before auth request:",
+            refresh_cookie_before_auth is not None,
+        )
+
         authentication_error = None
 
         try:
@@ -270,7 +294,22 @@ def main():
                 """
             )
 
-            print("[DEBUG] Captured VStudy auth/API requests:")
+            refresh_cookie_after_auth = get_refresh_cookie_value()
+        print(
+            "[DEBUG] Refresh cookie present after auth request:",
+            refresh_cookie_after_auth is not None,
+        )
+
+        if (
+            refresh_cookie_before_auth is not None
+            and refresh_cookie_after_auth is not None
+        ):
+            print(
+                "[DEBUG] Refresh cookie value changed during auth request:",
+                refresh_cookie_before_auth != refresh_cookie_after_auth,
+            )
+
+        print("[DEBUG] Captured VStudy auth/API requests:")
 
             if not network_log:
                 print("[DEBUG] No captured VStudy auth/API requests.")
