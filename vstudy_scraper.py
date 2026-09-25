@@ -184,21 +184,63 @@ class VStudyScraper:
         if not os.access(runtime_dir, os.W_OK):
             raise PermissionError(f"Chrome runtime directory is not writable: {runtime_dir}")
 
+        browser_candidates = [
+            "google-chrome",
+            "google-chrome-stable",
+            "chromium",
+            "chromium-browser",
+            "chrome",
+            "chrome.exe",
+        ]
+
         browser_binary = next(
             (
                 shutil.which(name)
-                for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser")
+                for name in browser_candidates
                 if shutil.which(name)
             ),
             None,
         )
+
+        # Windows fallback: Chrome is often installed outside PATH.
+        if not browser_binary and os.name == "nt":
+            windows_paths = [
+                os.path.expandvars(
+                    r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"
+                ),
+                os.path.expandvars(
+                    r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"
+                ),
+                os.path.expandvars(
+                    r"%LocalAppData%\Google\Chrome\Application\chrome.exe"
+                ),
+            ]
+
+            for path in windows_paths:
+                if path and os.path.isfile(path):
+                    browser_binary = path
+                    break
+
         chromedriver_binary = shutil.which("chromedriver")
-        self._log_chrome_diagnostics(browser_binary, chromedriver_binary)
+        self._log_chrome_diagnostics(
+            browser_binary,
+            chromedriver_binary,
+        )
+
         if not browser_binary:
-            raise RuntimeError("No supported Chrome/Chromium browser was found on the runner")
-        options = self._build_chrome_options(profile_dir, runtime_dir, browser_binary)
+            raise RuntimeError(
+                "No supported Chrome/Chromium browser was found on the runner"
+            )
+
+        options = self._build_chrome_options(
+            profile_dir,
+            runtime_dir,
+            browser_binary,
+        )
+
         chromedriver_log_path = None
         driver_started = False
+
         try:
             log_fd, chromedriver_log_path = tempfile.mkstemp(
                 prefix="chromedriver-",
@@ -206,28 +248,64 @@ class VStudyScraper:
                 dir=runtime_dir,
             )
             os.close(log_fd)
-            service = Service(log_output=chromedriver_log_path)
+
+            service = Service(
+                log_output=chromedriver_log_path
+            )
+
             self._cleanup_stale_profile_locks(profile_dir)
-            self._log_profile_startup_preflight(profile_dir, runtime_dir)
-            self.driver = webdriver.Chrome(service=service, options=options)
+            self._log_profile_startup_preflight(
+                profile_dir,
+                runtime_dir,
+            )
+
+            self.driver = webdriver.Chrome(
+                service=service,
+                options=options,
+            )
             driver_started = True
+
         except WebDriverException as exc:
-            print("[✗] ChromeDriver failed to start the selected browser with the fresh profile")
-            print(f"[DEBUG] Chrome user-data directory: {profile_dir}")
-            print(f"[DEBUG] Chrome runtime/cache directory: {runtime_dir}")
-            print(f"[DEBUG] Chrome options: {options.arguments}")
-            print(f"[DEBUG] ChromeDriver exception message: {str(exc) or '<empty>'}")
-            print(f"[DEBUG] Complete ChromeDriver exception: {exc!r}")
+            print(
+                "[✗] ChromeDriver failed to start the selected browser "
+                "with the fresh profile"
+            )
+            print(
+                f"[DEBUG] Chrome user-data directory: {profile_dir}"
+            )
+            print(
+                f"[DEBUG] Chrome runtime/cache directory: {runtime_dir}"
+            )
+            print(
+                f"[DEBUG] Chrome options: {options.arguments}"
+            )
+            print(
+                f"[DEBUG] ChromeDriver exception message: "
+                f"{str(exc) or '<empty>'}"
+            )
+            print(
+                f"[DEBUG] Complete ChromeDriver exception: {exc!r}"
+            )
             print("[DEBUG] ChromeDriver traceback:")
             print(traceback.format_exc())
+
             if chromedriver_log_path:
                 try:
-                    with open(chromedriver_log_path, "r", encoding="utf-8", errors="replace") as log_file:
+                    with open(
+                        chromedriver_log_path,
+                        "r",
+                        encoding="utf-8",
+                        errors="replace",
+                    ) as log_file:
                         print("[DEBUG] ChromeDriver log:")
                         print(log_file.read())
                 except OSError as log_exc:
-                    print(f"[DEBUG] Could not read ChromeDriver log: {log_exc}")
+                    print(
+                        f"[DEBUG] Could not read ChromeDriver log: "
+                        f"{log_exc}"
+                    )
             raise
+
         finally:
             if chromedriver_log_path and driver_started:
                 try:
@@ -235,9 +313,14 @@ class VStudyScraper:
                 except OSError:
                     pass
             elif chromedriver_log_path:
-                print(f"[DEBUG] ChromeDriver log retained at: {chromedriver_log_path}")
+                print(
+                    f"[DEBUG] ChromeDriver log retained at: "
+                    f"{chromedriver_log_path}"
+                )
 
-        print(f"[*] Using Chrome user-data directory: {profile_dir}")
+        print(
+            f"[*] Using Chrome user-data directory: {profile_dir}"
+        )
         return self.driver
 
     def _is_dashboard_visible(self, driver):
