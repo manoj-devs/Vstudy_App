@@ -96,6 +96,35 @@ def main():
                             } catch (_) {}
                         };
 
+                        const sanitizeBody = (text) => {
+                            try {
+                                const raw = String(text || "").slice(0, 1500);
+
+                                return raw.replace(
+                                    /(authorization|cookie|set-cookie|token|refresh_token|access_token)\s*[:=]\s*["']?[^,;\s"'}]+/gi,
+                                    "$1=[REDACTED]"
+                                );
+                            } catch (_) {
+                                return "";
+                            }
+                        };
+
+                        const recordResponseBody = (response, meta) => {
+                            if (!response || response.status < 400) {
+                                record(meta);
+                                return;
+                            }
+
+                            response.clone().text().then((body) => {
+                                record({
+                                    ...meta,
+                                    response_body: sanitizeBody(body)
+                                });
+                            }).catch(() => {
+                                record(meta);
+                            });
+                        };
+
                         const originalFetch = window.fetch;
 
                         window.fetch = async function(input, init = {}) {
@@ -113,7 +142,7 @@ def main():
                                 const response =
                                     await originalFetch.apply(this, arguments);
 
-                                record({
+                                recordResponseBody(response, {
                                     kind: "fetch",
                                     url,
                                     method,
@@ -149,12 +178,27 @@ def main():
                             };
 
                             xhr.addEventListener("loadend", () => {
-                                record({
+                                const meta = {
                                     kind: "xhr",
                                     url,
                                     method,
                                     status: xhr.status
-                                });
+                                };
+
+                                if (xhr.status >= 400) {
+                                    let body = "";
+
+                                    try {
+                                        body = sanitizeBody(xhr.responseText);
+                                    } catch (_) {}
+
+                                    record({
+                                        ...meta,
+                                        response_body: body
+                                    });
+                                } else {
+                                    record(meta);
+                                }
                             });
 
                             xhr.addEventListener("error", () => {
@@ -280,7 +324,7 @@ def main():
 
             try:
                 resources = driver.execute_script(
-                    """
+                    r"""
                     return performance.getEntriesByType('resource')
                         .map((entry) => entry.name)
                         .filter((url) => /admission\.saveetha\.com|\/api\/auth\//i.test(url));
