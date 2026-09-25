@@ -27,7 +27,72 @@ def main():
         state = load_auth_state(args.state_file)
         scraper = VStudyScraper()
         driver = scraper._create_driver()
+
+        # Capture browser-side refresh/auth requests without logging cookie values.
+        driver.execute_cdp_cmd(
+            "Page.addScriptToEvaluateOnNewDocument",
+            {
+                "source": """
+                    (() => {
+                        window.__vstudyNetworkLog = [];
+                        const record = (entry) => {
+                            try {
+                                const url = String(entry.url || "");
+                                if (url.includes("admission.saveetha.com") || url.includes("/api/auth/")) {
+                                    window.__vstudyNetworkLog.push(entry);
+                                }
+                            } catch (_) {}
+                        };
+
+                        const originalFetch = window.fetch;
+                        window.fetch = async function(input, init = {}) {
+                            const url = typeof input === "string" ? input : (input && input.url) || "";
+                            const method = (init && init.method) || (input && input.method) || "GET";
+                            try {
+                                const response = await originalFetch.apply(this, arguments);
+                                record({kind: "fetch", url, method, status: response.status});
+                                return response;
+                            } catch (error) {
+                                record({kind: "fetch-error", url, method, error: String(error)});
+                                throw error;
+                            }
+                        };
+
+                        const OriginalXHR = window.XMLHttpRequest;
+                        window.XMLHttpRequest = function() {
+                            const xhr = new OriginalXHR();
+                            let method = "GET";
+                            let url = "";
+                            const originalOpen = xhr.open;
+                            xhr.open = function(m, u) {
+                                method = m || "GET";
+                                url = String(u || "");
+                                return originalOpen.apply(this, arguments);
+                            };
+                            xhr.addEventListener("loadend", () => {
+                                record({kind: "xhr", url, method, status: xhr.status});
+                            });
+                            xhr.addEventListener("error", () => {
+                                record({kind: "xhr-error", url, method, error: "network error"});
+                            });
+                            return xhr;
+                        };
+                    })();
+                """
+            },
+        )
+
         inject_auth_state(driver, state)
+
+        try:
+            network_log = driver.execute_script("return window.__vstudyNetworkLog || [];")
+            refresh_entries = [
+                entry for entry in network_log
+                if "refresh" in str(entry.get("url", "")).lower()
+            ]
+            print(f"[DEBUG] Captured auth/refresh requests after state injection: {refresh_entries}")
+        except Exception as exc:
+            print(f"[DEBUG] Could not read captured auth/refresh requests: {exc}")
 
         scraper.ensure_authenticated(driver)
         print(f"[DEBUG] Root URL: {driver.current_url}")
