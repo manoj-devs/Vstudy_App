@@ -331,21 +331,28 @@ class VStudyScraper:
         return "dashboard" in title
 
     def _is_authentication_required(self, driver):
-        current_url = driver.current_url.lower()
+        current_url = (driver.current_url or "").lower()
+        page_text = (driver.page_source or "").lower()
+        title = (driver.title or "").lower()
+
         if "/dashboard" in current_url or "/profile" in current_url:
             return False
 
-        page_text = (driver.page_source or "").lower()
         login_markers = [
             "continue with google",
             "sign in with google",
             "welcome back",
             "login required",
+            "simats vstudy secure authentication",
         ]
+
         if any(marker in page_text for marker in login_markers):
             return True
 
         if "login" in current_url or "auth" in current_url:
+            return True
+
+        if "secure authentication" in title:
             return True
 
         return False
