@@ -295,21 +295,21 @@ def main():
             )
 
             refresh_cookie_after_auth = get_refresh_cookie_value()
-        print(
-            "[DEBUG] Refresh cookie present after auth request:",
-            refresh_cookie_after_auth is not None,
-        )
-
-        if (
-            refresh_cookie_before_auth is not None
-            and refresh_cookie_after_auth is not None
-        ):
             print(
-                "[DEBUG] Refresh cookie value changed during auth request:",
-                refresh_cookie_before_auth != refresh_cookie_after_auth,
+                "[DEBUG] Refresh cookie present after auth request:",
+                refresh_cookie_after_auth is not None,
             )
 
-        print("[DEBUG] Captured VStudy auth/API requests:")
+            if (
+                refresh_cookie_before_auth is not None
+                and refresh_cookie_after_auth is not None
+            ):
+                print(
+                    "[DEBUG] Refresh cookie value changed during auth request:",
+                    refresh_cookie_before_auth != refresh_cookie_after_auth,
+                )
+
+            print("[DEBUG] Captured VStudy auth/API requests:")
 
             if not network_log:
                 print("[DEBUG] No captured VStudy auth/API requests.")
