@@ -103,7 +103,32 @@ def main():
             )
         print("[PASS] Fresh Chromium profile recognized VStudy authentication")
 
-        scraper.open_profile_page(driver)
+        try:
+            scraper.open_profile_page(driver)
+        except AuthenticationRequiredError:
+            print("[DEBUG] Browser cookies (metadata only):")
+            try:
+                print([
+                    {k: cookie.get(k) for k in ("name", "domain", "path", "secure", "httpOnly", "sameSite", "expiry")}
+                    for cookie in driver.get_cookies()
+                    if "saveetha.com" in str(cookie.get("domain", "")).lower()
+                ])
+            except Exception as exc:
+                print(f"[DEBUG] Could not read browser cookie metadata: {exc}")
+
+            try:
+                resources = driver.execute_script(
+                    """
+                    return performance.getEntriesByType('resource')
+                        .map((entry) => entry.name)
+                        .filter((url) => /admission\\.saveetha\\.com|\\/api\\/auth\\//i.test(url));
+                    """
+                )
+                print(f"[DEBUG] Auth-related resource URLs: {resources}")
+            except Exception as exc:
+                print(f"[DEBUG] Could not read performance resource URLs: {exc}")
+            raise
+
         print(f"[DEBUG] Profile URL: {driver.current_url}")
         print(f"[DEBUG] Profile title: {driver.title}")
         print("[PASS] Profile page opened")
