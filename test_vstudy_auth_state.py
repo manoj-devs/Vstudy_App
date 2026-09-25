@@ -29,6 +29,29 @@ def main():
         from vstudy_scraper import AuthenticationRequiredError, VStudyScraper
 
         state = load_auth_state(args.state_file)
+
+        print("[DEBUG] Auth-state cookie metadata before injection:")
+        print(
+            [
+                {
+                    key: cookie.get(key)
+                    for key in (
+                        "name",
+                        "domain",
+                        "path",
+                        "secure",
+                        "httpOnly",
+                        "sameSite",
+                        "expires",
+                    )
+                }
+                for cookie in state.get("cookies", [])
+            ]
+        )
+
+        print("[DEBUG] Auth-state saved origins:")
+        print(list(state.get("origins", {}).keys()))
+
         scraper = VStudyScraper()
         driver = scraper._create_driver()
 
@@ -151,6 +174,37 @@ def main():
         )
 
         inject_auth_state(driver, state)
+
+        print("[DEBUG] Browser Saveetha cookie metadata after injection:")
+        try:
+            injected_cookies = driver.execute_cdp_cmd(
+                "Network.getAllCookies",
+                {}
+            ).get("cookies", [])
+
+            print(
+                [
+                    {
+                        key: cookie.get(key)
+                        for key in (
+                            "name",
+                            "domain",
+                            "path",
+                            "secure",
+                            "httpOnly",
+                            "sameSite",
+                            "expires",
+                        )
+                    }
+                    for cookie in injected_cookies
+                    if "saveetha.com"
+                    in str(cookie.get("domain", "")).lower()
+                ]
+            )
+        except Exception as exc:
+            print(
+                f"[DEBUG] Could not inspect cookies after injection: {exc}"
+            )
 
         authentication_error = None
 
