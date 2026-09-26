@@ -1,10 +1,7 @@
-name: VStudy GitHub monitor
+name: VStudy GitHub-hosted monitor (manual only)
 
 on:
   workflow_dispatch:
-  schedule:
-    # Every 15 minutes, offset away from the top of the hour.
-    - cron: "7,22,37,52 * * * *"
 
 concurrency:
   group: vstudy-github-monitor
