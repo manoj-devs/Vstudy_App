@@ -31,12 +31,15 @@ jobs:
 
       - name: Run VStudy persistent-profile test
         shell: pwsh
-        env:
-          VSTUDY_PROFILE_DIR: 'C:\vstudy_chrome_profile'
-          CHROME_RUNTIME_DIR: 'C:\vstudy_chrome_runtime'
-          HEADLESS: "true"
-          UNATTENDED: "true"
-          LOG_COURSE_RESULTS: "false"
         run: |
+          $env:VSTUDY_PROFILE_DIR = "C:/vstudy_chrome_profile"
+          $env:CHROME_RUNTIME_DIR = "C:/vstudy_chrome_runtime"
+          $env:HEADLESS = "true"
+          $env:UNATTENDED = "true"
+          $env:LOG_COURSE_RESULTS = "false"
+
+          Write-Host "VSTUDY_PROFILE_DIR=$env:VSTUDY_PROFILE_DIR"
+          Write-Host "CHROME_RUNTIME_DIR=$env:CHROME_RUNTIME_DIR"
+
           $python = "C:\Users\manoj\AppData\Local\Python\bin\python.exe"
           & $python test_vstudy_login.py 2>$null
