@@ -12,10 +12,17 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Check runner identity
+        shell: pwsh
+        run: |
+          Write-Host "Runner user:"
+          whoami
+          Write-Host "LOCALAPPDATA: $env:LOCALAPPDATA"
+
       - name: Set up Python
         shell: pwsh
         run: |
-          $python = "$env:LOCALAPPDATA\Python\bin\python.exe"
+          $python = "C:\Users\manoj\AppData\Local\Python\bin\python.exe"
           if (-not (Test-Path $python)) {
             throw "Python executable not found at $python"
           }
@@ -31,5 +38,5 @@ jobs:
           UNATTENDED: "true"
           LOG_COURSE_RESULTS: "false"
         run: |
-          $python = "$env:LOCALAPPDATA\Python\bin\python.exe"
+          $python = "C:\Users\manoj\AppData\Local\Python\bin\python.exe"
           & $python test_vstudy_login.py 2>$null
