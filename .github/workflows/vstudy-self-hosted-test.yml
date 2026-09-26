@@ -32,8 +32,8 @@ jobs:
       - name: Run VStudy persistent-profile test
         shell: pwsh
         env:
-          VSTUDY_PROFILE_DIR: "C:\vstudy_chrome_profile"
-          CHROME_RUNTIME_DIR: "C:\vstudy_chrome_runtime"
+          VSTUDY_PROFILE_DIR: 'C:\vstudy_chrome_profile'
+          CHROME_RUNTIME_DIR: 'C:\vstudy_chrome_runtime'
           HEADLESS: "true"
           UNATTENDED: "true"
           LOG_COURSE_RESULTS: "false"
