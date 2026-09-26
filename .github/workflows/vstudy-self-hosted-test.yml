@@ -1,0 +1,30 @@
+name: VStudy self-hosted test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  vstudy-test:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        shell: pwsh
+        run: |
+          python --version
+          python -m pip install -r requirements.txt
+
+      - name: Run VStudy persistent-profile test
+        shell: pwsh
+        env:
+          VSTUDY_PROFILE_DIR: "C:\vstudy_chrome_profile"
+          CHROME_RUNTIME_DIR: "C:\vstudy_chrome_runtime"
+          HEADLESS: "true"
+          UNATTENDED: "true"
+          LOG_COURSE_RESULTS: "false"
+        run: |
+          python test_vstudy_login.py 2>$null
