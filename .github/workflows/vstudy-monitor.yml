@@ -4,6 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths-ignore:
+      - "vstudy-monitor-state.enc"
+      - ".github/vstudy-monitor-heartbeat.txt"
 
 concurrency:
   group: vstudy-monitor-deployment
