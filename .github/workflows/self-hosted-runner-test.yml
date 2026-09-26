@@ -1,0 +1,20 @@
+name: Self-hosted runner test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-runner:
+    runs-on: self-hosted
+    timeout-minutes: 5
+    steps:
+      - name: Verify Windows runner
+        shell: pwsh
+        run: |
+          Write-Host "Runner is working."
+          Write-Host "Computer: $env:COMPUTERNAME"
+          Write-Host "User: $env:USERNAME"
+          Write-Host "OS:"
+          Get-CimInstance Win32_OperatingSystem |
+            Select-Object Caption, Version, OSArchitecture |
+            Format-List
