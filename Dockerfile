@@ -22,3 +22,5 @@ ENV HEADLESS=true \
     VSTUDY_PROFILE_DIR=/data/vstudy_chrome_profile \
     DATABASE_NAME=/data/results.db \
     HEARTBEAT_FILE=/data/monitor.heartbeat
+
+CMD ["python", "monitor.py"]
