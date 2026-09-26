@@ -70,6 +70,12 @@ class VStudyScraper:
         options.add_argument("--disable-notifications")
         options.add_argument("--disable-popup-blocking")
         options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_argument("--disable-background-networking")
+        options.add_argument("--disable-component-update")
+        options.add_argument("--disable-sync")
+        options.add_argument("--disable-extensions")
+        options.add_argument("--noerrdialogs")
+        options.add_argument("--disable-session-crashed-bubble")
         if browser_binary:
             options.binary_location = browser_binary
         if HEADLESS:
@@ -131,6 +137,27 @@ class VStudyScraper:
                 print(f"[DEBUG] Removed stale lock: {filename}")
             except OSError as exc:
                 print(f"[DEBUG] Could not remove stale lock {filename}: {exc}")
+
+    def _cleanup_stale_session_state(self, profile_dir):
+        """Remove only Chromium's crash/session restoration files.
+        Cookies, Local Storage, IndexedDB, and other authentication data are preserved.
+        """
+        if os.name != "posix":
+            return
+
+        default_dir = os.path.join(profile_dir, "Default")
+        session_dir = os.path.join(default_dir, "Sessions")
+        if not os.path.isdir(session_dir):
+            return
+
+        for filename in os.listdir(session_dir):
+            path = os.path.join(session_dir, filename)
+            try:
+                if os.path.isfile(path) or os.path.islink(path):
+                    os.remove(path)
+                    print(f"[DEBUG] Removed stale browser session file: {filename}")
+            except OSError as exc:
+                print(f"[DEBUG] Could not remove session file {filename}: {exc}")
 
     def _log_profile_startup_preflight(self, profile_dir, runtime_dir):
         print("[DEBUG] Persistent Chrome profile startup preflight:")
@@ -255,6 +282,7 @@ class VStudyScraper:
             )
 
             self._cleanup_stale_profile_locks(profile_dir)
+            self._cleanup_stale_session_state(profile_dir)
             self._log_profile_startup_preflight(
                 profile_dir,
                 runtime_dir,
