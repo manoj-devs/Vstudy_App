@@ -17,6 +17,7 @@ from config import (
     CHROME_RUNTIME_DIR,
     HEADLESS,
     SAVE_DEBUG_ARTIFACTS,
+    LOG_COURSE_RESULTS,
     UNATTENDED,
     VSTUDY_URL,
     VSTUDY_PROFILE_DIR,
@@ -1016,14 +1017,15 @@ class VStudyScraper:
                 print(f"    {code}")
 
         print(f"[✓] Total unique courses found: {len(results)}")
-        for item in results:
-            course_name = item.get('course_name', '').strip()
-            course_code = item.get('course_code', '').strip()
-            course_type = item.get('course_type', '').strip() or ""
-            status = item.get('status', '').strip() or ""
-            grade = item.get('grade', '').strip() or ""
-            course_gpa = item.get('course_gpa', '').strip() or ""
-            print(f"[✓] {course_name} | {course_code} | {course_type} | {status} | {grade} | {course_gpa}")
+        if LOG_COURSE_RESULTS:
+            for item in results:
+                course_name = item.get('course_name', '').strip()
+                course_code = item.get('course_code', '').strip()
+                course_type = item.get('course_type', '').strip() or ""
+                status = item.get('status', '').strip() or ""
+                grade = item.get('grade', '').strip() or ""
+                course_gpa = item.get('course_gpa', '').strip() or ""
+                print(f"[✓] {course_name} | {course_code} | {course_type} | {status} | {grade} | {course_gpa}")
 
         if results:
             return results
