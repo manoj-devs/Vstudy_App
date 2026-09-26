@@ -1,12 +1,7 @@
-name: VStudy monitor deployment
+name: VStudy legacy VPS deployment (manual only)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths-ignore:
-      - "vstudy-monitor-state.enc"
-      - ".github/vstudy-monitor-heartbeat.txt"
 
 concurrency:
   group: vstudy-monitor-deployment
