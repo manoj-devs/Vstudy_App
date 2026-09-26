@@ -40,6 +40,7 @@ UNATTENDED = os.getenv("UNATTENDED", "false").strip().lower() in {"1", "true", "
 RUN_FOREVER = os.getenv("RUN_FOREVER", "false").strip().lower() in {"1", "true", "yes"}
 CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", str(CHECK_INTERVAL)))
 SAVE_DEBUG_ARTIFACTS = os.getenv("SAVE_DEBUG_ARTIFACTS", "false").strip().lower() in {"1", "true", "yes"}
+LOG_COURSE_RESULTS = os.getenv("LOG_COURSE_RESULTS", "true").strip().lower() in {"1", "true", "yes"}
 
 # Debug: Print environment variable presence without exposing secrets
 print(f"DEBUG -> VSTUDY_PROFILE_DIR: {VSTUDY_PROFILE_DIR}")
