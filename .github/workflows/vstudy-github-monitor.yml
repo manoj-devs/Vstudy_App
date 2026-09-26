@@ -1,0 +1,96 @@
+name: VStudy GitHub monitor
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Every 15 minutes, offset away from the top of the hour.
+    - cron: "7,22,37,52 * * * *"
+
+concurrency:
+  group: vstudy-github-monitor
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Validate required secrets
+        env:
+          VSTUDY_STATE_KEY: ${{ secrets.VSTUDY_STATE_KEY }}
+          VSTUDY_AUTH_STATE_B64: ${{ secrets.VSTUDY_AUTH_STATE_B64 }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          test -n "$VSTUDY_STATE_KEY" || { echo "VSTUDY_STATE_KEY is not configured"; exit 1; }
+          test -n "$VSTUDY_AUTH_STATE_B64" || { echo "VSTUDY_AUTH_STATE_B64 is not configured"; exit 1; }
+          test -n "$TELEGRAM_TOKEN" || { echo "TELEGRAM_TOKEN is not configured"; exit 1; }
+          test -n "$TELEGRAM_CHAT_ID" || { echo "TELEGRAM_CHAT_ID is not configured"; exit 1; }
+
+      - name: Materialize encrypted VStudy authentication state
+        env:
+          VSTUDY_AUTH_STATE_B64: ${{ secrets.VSTUDY_AUTH_STATE_B64 }}
+        run: |
+          printf '%s' "$VSTUDY_AUTH_STATE_B64" | base64 --decode > "$RUNNER_TEMP/vstudy-auth-state.enc"
+          test -s "$RUNNER_TEMP/vstudy-auth-state.enc"
+
+      - name: Run one VStudy monitor cycle
+        env:
+          VSTUDY_STATE_KEY: ${{ secrets.VSTUDY_STATE_KEY }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          VSTUDY_URL: "https://vstudy.saveetha.com/"
+          HEADLESS: "true"
+          UNATTENDED: "true"
+          RUN_FOREVER: "false"
+          CHECK_INTERVAL: "300"
+          LOG_COURSE_RESULTS: "false"
+          SAVE_DEBUG_ARTIFACTS: "false"
+        run: |
+          python github_actions_monitor.py             --auth-state "$RUNNER_TEMP/vstudy-auth-state.enc"             --monitor-state "vstudy-monitor-state.enc"
+
+      - name: Update monitor heartbeat
+        run: |
+          TODAY="$(date -u +%F)"
+          PREVIOUS="$(cat .github/vstudy-monitor-heartbeat.txt 2>/dev/null || true)"
+          if [ "$PREVIOUS" != "$TODAY" ]; then
+            printf '%s\n' "$TODAY" > .github/vstudy-monitor-heartbeat.txt
+          fi
+
+      - name: Persist encrypted monitor state
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add vstudy-monitor-state.enc .github/vstudy-monitor-heartbeat.txt
+
+          if git diff --cached --quiet; then
+            echo "No monitor state changes to commit"
+            exit 0
+          fi
+
+          git commit -m "chore: update VStudy monitor state"
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - name: Remove temporary authentication state
+        if: always()
+        run: rm -f "$RUNNER_TEMP/vstudy-auth-state.enc"
