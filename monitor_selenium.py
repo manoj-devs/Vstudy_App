@@ -61,6 +61,28 @@ class VStudyMonitor:
             print("[✓] No new results")
             return
 
+        # First successful production run establishes the current VStudy
+        # state as the baseline without sending notifications for old results.
+        if self.database.get_state("baseline_initialized", "0") != "1":
+            print(f"[*] Establishing baseline with {len(results)} course result(s)...")
+            for result in results:
+                self.database.add_result(result)
+                self.database.log_notification(
+                    course_code=result.get("course_code", ""),
+                    course_name=result.get("course_name", ""),
+                    course_type=result.get("course_type", ""),
+                    grade=result.get("grade", ""),
+                    course_gpa=result.get("course_gpa", ""),
+                    status=result.get("status", ""),
+                    month_year=self._ts()[:7],
+                    attendance=result.get("attendance", ""),
+                    assessments=result.get("assessments", ""),
+                    other_requirements=result.get("other_requirements", ""),
+                )
+            self.database.set_state("baseline_initialized", "1")
+            print("[✓] Baseline saved; no notifications sent for existing results")
+            return
+
         print(f"[*] Checking database for new results...")
         new = self.database.find_new_results(results)
 
