@@ -1,0 +1,88 @@
+name: VStudy self-hosted monitor
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Every 15 minutes.
+    - cron: "7,22,37,52 * * * *"
+
+concurrency:
+  group: vstudy-self-hosted-monitor
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  monitor:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install Python dependencies
+        shell: pwsh
+        run: |
+          $python = "C:\Users\manoj\AppData\Local\Python\bin\python.exe"
+          if (-not (Test-Path $python)) {
+            throw "Python executable not found at $python"
+          }
+          & $python --version
+          & $python -m pip install -r requirements.txt
+
+      - name: Validate Telegram secrets
+        shell: pwsh
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TELEGRAM_TOKEN)) {
+            throw "TELEGRAM_TOKEN repository secret is not configured"
+          }
+          if ([string]::IsNullOrWhiteSpace($env:TELEGRAM_CHAT_ID)) {
+            throw "TELEGRAM_CHAT_ID repository secret is not configured"
+          }
+
+      - name: Prepare persistent monitor directories
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "C:\vstudy_chrome_runtime" | Out-Null
+          New-Item -ItemType Directory -Force "C:\vstudy_monitor_data" | Out-Null
+
+      - name: Run one VStudy monitor cycle
+        shell: pwsh
+        env:
+          VSTUDY_PROFILE_DIR: "C:/vstudy_chrome_profile"
+          CHROME_RUNTIME_DIR: "C:/vstudy_chrome_runtime"
+          DATABASE_NAME: "C:/vstudy_monitor_data/results.db"
+          HEARTBEAT_FILE: "C:/vstudy_monitor_data/monitor.heartbeat"
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          VSTUDY_URL: "https://vstudy.saveetha.com/"
+          HEADLESS: "true"
+          UNATTENDED: "true"
+          RUN_FOREVER: "false"
+          CHECK_INTERVAL: "300"
+          LOG_COURSE_RESULTS: "false"
+          SAVE_DEBUG_ARTIFACTS: "false"
+        run: |
+          $env:VSTUDY_PROFILE_DIR = "C:/vstudy_chrome_profile"
+          $env:CHROME_RUNTIME_DIR = "C:/vstudy_chrome_runtime"
+          $env:DATABASE_NAME = "C:/vstudy_monitor_data/results.db"
+          $env:HEARTBEAT_FILE = "C:/vstudy_monitor_data/monitor.heartbeat"
+          $env:TELEGRAM_TOKEN = $env:TELEGRAM_TOKEN
+          $env:TELEGRAM_CHAT_ID = $env:TELEGRAM_CHAT_ID
+          $env:VSTUDY_URL = "https://vstudy.saveetha.com/"
+          $env:HEADLESS = "true"
+          $env:UNATTENDED = "true"
+          $env:RUN_FOREVER = "false"
+          $env:CHECK_INTERVAL = "300"
+          $env:LOG_COURSE_RESULTS = "false"
+          $env:SAVE_DEBUG_ARTIFACTS = "false"
+
+          $python = "C:\Users\manoj\AppData\Local\Python\bin\python.exe"
+          & $python monitor_selenium.py
