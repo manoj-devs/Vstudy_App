@@ -4,7 +4,7 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends chromium chromium-driver xvfb x11vnc fluxbox \
+    && apt-get install -y --no-install-recommends chromium chromium-driver xvfb x11vnc fluxbox tini \
     && chromium --version \
     && chromedriver --version \
     && rm -rf /var/lib/apt/lists/*
@@ -23,4 +23,5 @@ ENV HEADLESS=true \
     DATABASE_NAME=/data/results.db \
     HEARTBEAT_FILE=/data/monitor.heartbeat
 
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["python", "monitor.py"]
