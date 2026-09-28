@@ -4,24 +4,109 @@ This project monitors the Saveetha VStudy portal, collects the course table, det
 
 ## Features
 
-- Persistent Chrome profile for manual Google sign-in once
-- VStudy profile page and View Details flow
-- Student Progress filtering for All 17 courses
+- Persistent Chromium profile for Google/VStudy authentication
+- VStudy profile page and **View Details** flow
+- Student Progress filtering for **All 17** courses
 - Course extraction and deduplication by course code
 - SQLite result and notification history
-- Telegram notifications for newly detected courses
+- Telegram notifications for newly detected results
+- Runs continuously on Railway with a persistent /data volume
+- Automatic retry/recovery for transient VStudy navigation and Selenium failures
+- Chromium startup hardening for persistent-profile restarts
+- Container heartbeat watchdog so a stuck monitor can exit and be restarted
+- Tini init process to reap Chromium child processes and prevent zombie-process buildup
+
+## Monitoring flow
+
+```text
+Railway service
+    │
+    ├── persistent /data volume
+    │      ├── vstudy_chrome_profile/
+    │      ├── results.db
+    │      └── monitor.heartbeat
+    │
+    └── monitor.py
+           │
+           ├── Selenium + Chromium
+           │      ├── Open VStudy
+           │      ├── Open profile
+           │      ├── View Details
+           │      └── Select All 17
+           │
+           ├── SQLite comparison
+           │
+           └── Telegram notification
+```
+
+The monitor checks VStudy every **900 seconds (15 minutes)** in the current Railway deployment.
+
+## Reliability and recovery
+
+The scraper is designed to recover from temporary browser or portal problems without losing the authenticated profile.
+
+### Browser startup hardening
+
+The scraper checks the persistent profile before launching Chromium:
+
+- Detects active Chromium processes using the same profile
+- Removes stale Chromium singleton locks when safe
+- Verifies the profile directory is writable
+- Verifies Local State and Preferences are readable
+- Uses a dedicated runtime/cache directory under /tmp/chrome
+- Uses headless Chromium with container-safe startup flags
+
+### Automatic scrape retries
+
+A scrape can fail because VStudy temporarily loads the wrong dashboard page or Chromium has a transient WebDriver/browser failure.
+
+The scraper now performs up to **3 fresh browser attempts**. Between failed attempts it:
+
+1. Closes the failed browser session
+2. Waits 5 seconds
+3. Starts a new browser session
+4. Repeats the VStudy navigation and scrape
+
+The monitor only sends a Telegram scraping-error notification after the retry attempts are exhausted.
+
+### Container process management
+
+The Railway container runs through **Tini**:
+
+```text
+PID 1: tini
+   └── python monitor.py
+        └── ChromeDriver / Chromium
+```
+
+Tini reaps exited Chromium child processes so zombie processes do not accumulate and exhaust Railway's process limit.
+
+### Heartbeat watchdog
+
+monitor.py writes /data/monitor.heartbeat continuously. If the heartbeat becomes stale beyond the configured timeout, the monitor exits so the container platform can restart it.
 
 ## Required environment variables
 
-Create a `.env` file with:
+Create a .env file for local use, or configure these as Railway environment variables:
 
-```bash
+```text
 VSTUDY_URL=https://vstudy.saveetha.com/
 VSTUDY_PROFILE_DIR=./vstudy_chrome_profile
 TELEGRAM_TOKEN=your_bot_token_here
 TELEGRAM_CHAT_ID=your_chat_id_here
 DATABASE_NAME=./results.db
 ```
+
+The Railway deployment additionally uses persistent container paths such as:
+
+```text
+VSTUDY_PROFILE_DIR=/data/vstudy_chrome_profile
+DATABASE_NAME=/data/results.db
+HEARTBEAT_FILE=/data/monitor.heartbeat
+CHROME_RUNTIME_DIR=/tmp/chrome
+```
+
+Never commit real Telegram tokens, chat IDs, Google credentials, or other secrets.
 
 ## Project structure
 
@@ -33,180 +118,122 @@ DATABASE_NAME=./results.db
 ├── vstudy_scraper.py
 ├── results_db.py
 ├── telegram_notifier.py
+├── test_vstudy_login.py
 ├── requirements.txt
+├── Dockerfile
+├── docker-compose.yml
 ├── .env.example
 ├── README.md
-├── results.db
-├── vstudy_chrome_profile/
-└── test_vstudy_login.py
+└── .github/
+    └── workflows/
 ```
 
 ## How it works
 
-1. Open the VStudy portal using the configured persistent Chrome profile.
+1. Open the VStudy portal using the persistent Chromium profile.
 2. Navigate to the student profile page.
-3. Click View Details.
-4. Select the All 17 filter in Student Progress.
+3. Find and click **View Details**.
+4. Select the **All 17** filter in Student Progress.
 5. Parse the course table and collect unique course codes.
-6. Store the results in SQLite and notify only when a new course code is seen.
+6. Compare the current results with SQLite history.
+7. Save new results.
+8. Send Telegram notifications only for newly detected course results.
+9. Write heartbeat data and wait 15 minutes before the next check.
+
+On the first successful production run, the existing VStudy state is saved as a baseline without sending notifications for old results.
 
 ## Run locally
 
+Install dependencies:
+
 ```bash
 pip install -r requirements.txt
+```
+
+Run the monitor:
+
+```bash
 python monitor.py
 ```
 
-## Cloud deployment
-
-Use an always-on Ubuntu 24.04 VPS with Docker Compose. This is a better fit than a scheduled or serverless host because Selenium needs Chromium, the authenticated Chrome profile must persist, and the worker must run continuously. The VPS runs the monitor 24/7; GitHub Actions only uploads new code and restarts the service.
-
-The Compose service mounts `/opt/vstudy-app/data` into the container as `/data`. That directory contains both `vstudy_chrome_profile/` and `results.db`, so authentication and notification history survive container rebuilds and VM reboots. `restart: unless-stopped` restarts a crashed container. A single in-process watchdog exits the monitor when its heartbeat is stale, so Docker also restarts hung Selenium sessions without creating a second monitor process.
-
-### 1. Create the VPS
-
-Create an Ubuntu 24.04 server with at least 2 vCPU, 4 GB RAM, and 20 GB of disk. Allow SSH (TCP 22) from your IP and keep all other inbound ports closed. SSH to the server and install Docker:
+Run a one-time scraper check:
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y ca-certificates curl rsync
-curl -fsSL https://get.docker.com | sudo sh
-sudo usermod -aG docker "$USER"
-exit
+python test_vstudy_login.py
 ```
 
-Reconnect, then create the deployment directories:
+A successful one-time check prints the number of courses found and exits normally.
 
-```bash
-sudo mkdir -p /opt/vstudy-app/data/vstudy_chrome_profile
-sudo chown -R "$USER":"$USER" /opt/vstudy-app
-```
+## Railway deployment
 
-### 2. Configure the server environment
+The production monitor currently runs as an always-on Railway service.
 
-After the first GitHub Actions deployment uploads the repository, create `/opt/vstudy-app/.env` on the VPS. Never commit this file:
+### Persistent data
 
-```bash
-cd /opt/vstudy-app
-cp .env.example .env
-nano .env
-```
-
-Set these values, including the real Telegram values only on the server:
+The Railway service uses the vstudy-data persistent volume mounted at:
 
 ```text
-VSTUDY_URL=https://vstudy.saveetha.com/
-TELEGRAM_TOKEN=replace_on_server_only
-TELEGRAM_CHAT_ID=replace_on_server_only
-VSTUDY_DATA_DIR=/opt/vstudy-app/data
+/data
+```
+
+This volume stores:
+
+```text
+/data/vstudy_chrome_profile/
+/data/results.db
+/data/monitor.heartbeat
+```
+
+The authenticated Chromium profile and SQLite history therefore survive normal redeployments and container restarts.
+
+**Do not delete or recreate the /data volume** unless you intentionally want to remove the saved authentication profile and monitoring history.
+
+### Current production configuration
+
+Typical production values include:
+
+```text
 HEADLESS=true
 UNATTENDED=true
 RUN_FOREVER=true
-CHECK_INTERVAL=300
-HEARTBEAT_TIMEOUT=900
-SAVE_DEBUG_ARTIFACTS=false
+CHECK_INTERVAL=900
+VSTUDY_PROFILE_DIR=/data/vstudy_chrome_profile
+DATABASE_NAME=/data/results.db
+HEARTBEAT_FILE=/data/monitor.heartbeat
+CHROME_RUNTIME_DIR=/tmp/chrome
 ```
 
-The Compose file supplies the container paths for `VSTUDY_PROFILE_DIR`, `DATABASE_NAME`, and `HEARTBEAT_FILE`. Do not put those secrets in GitHub Actions or source control.
+Telegram credentials are configured as Railway secrets.
 
-### 3. Authenticate directly on the VPS
-
-Do not copy a Windows Chrome profile. Windows browser cookies can be encrypted with Windows-specific keys and may not work in Linux Chromium. Instead, create the authenticated profile directly in the VPS container using the opt-in graphical service.
-
-First, stop the monitor so Chromium is the only process using the profile:
-
-```bash
-cd /opt/vstudy-app
-docker compose stop vstudy-monitor
-```
-
-Create a VNC password file in the persistent data directory. The command prompts for the password without putting it in shell history:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.auth.yml --profile auth \
-	run --rm --entrypoint x11vnc vstudy-auth -storepasswd /data/vnc.passwd
-chmod 600 data/vnc.passwd
-```
-
-Start the temporary Chromium and VNC service:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.auth.yml --profile auth \
-	up -d vstudy-auth
-docker compose -f docker-compose.yml -f docker-compose.auth.yml --profile auth \
-	logs --tail=50 vstudy-auth
-```
-
-The VNC server is bound to VPS localhost only. It is not publicly reachable. From Windows, open a second PowerShell terminal and keep this SSH tunnel running:
-
-```powershell
-ssh -N -L 5901:127.0.0.1:5901 YOUR_USER@YOUR_SERVER
-```
-
-Connect a VNC client such as TigerVNC or RealVNC to `127.0.0.1:5901` and enter the VNC password. In the Chromium window, complete the Google/VStudy login manually. Confirm that the browser reaches the VStudy dashboard, then open the profile page and confirm that **View Details** is visible. This browser is using `/data/vstudy_chrome_profile`, so the authenticated profile is created directly on Linux in the persistent volume.
-
-After the login succeeds, close the VNC client and stop/remove the temporary graphical service before starting the monitor:
-
-```bash
-cd /opt/vstudy-app
-docker compose -f docker-compose.yml -f docker-compose.auth.yml --profile auth \
-	stop vstudy-auth
-docker compose -f docker-compose.yml -f docker-compose.auth.yml --profile auth \
-	rm -f vstudy-auth
-docker compose up -d vstudy-monitor
-```
-
-The graphical service is disabled unless the `auth` profile is explicitly selected. The monitor uses the same profile headlessly with Selenium after the graphical service is stopped. If Google authentication expires later, repeat this VPS-side procedure; do not run the auth service and monitor at the same time.
-
-### 4. Configure GitHub Actions deployment
-
-Generate a dedicated deploy key on your local machine:
-
-```powershell
-ssh-keygen -t ed25519 -f "$HOME\.ssh\vstudy_deploy" -C "vstudy-github-actions"
-```
-
-Append `vstudy_deploy.pub` to `/home/YOUR_USER/.ssh/authorized_keys` on the VPS. In the repository's **Settings > Secrets and variables > Actions**, add:
+### Production architecture
 
 ```text
-VPS_HOST              VPS public IP or DNS name
-VPS_USER              Linux deployment username
-VPS_SSH_PRIVATE_KEY  complete contents of vstudy_deploy
-VPS_KNOWN_HOSTS      output of ssh-keyscan -H VPS_HOST
+Laptop OFF
+   ↓
+Railway
+   ↓
+Persistent Chromium profile
+   ↓
+VStudy every 15 minutes
+   ↓
+SQLite comparison
+   ↓
+Telegram alert for new results
 ```
 
-The workflow in `.github/workflows/vstudy-monitor.yml` runs on GitHub-hosted Ubuntu, uploads the application while preserving `.env` and `data/`, and runs `docker compose up -d --build`. It no longer requires a Windows self-hosted runner and does not use Telegram secrets in the workflow.
+This keeps the monitor running even when the development laptop is powered off.
 
-Trigger the workflow once from **Actions > VStudy monitor deployment > Run workflow**. The VPS directory must exist before this first upload.
+## Self-hosted backup
 
-### 5. Start and verify the service
+The repository also keeps manual GitHub Actions workflows for self-hosted testing/backup scenarios.
 
-After `.env` and the VPS-created profile are installed, start the service on the VPS:
-
-```bash
-cd /opt/vstudy-app
-docker compose up -d --build
-docker compose ps
-docker compose logs --tail=100 -f vstudy-monitor
-```
-
-The health status should become `healthy` after the first monitor cycle. The container restarts if Python exits. If Selenium hangs, the in-process watchdog sees that `/data/monitor.heartbeat` is older than `HEARTBEAT_TIMEOUT` seconds and exits Python; Docker then restarts the same container. Useful checks are:
-
-```bash
-docker compose exec vstudy-monitor sh -c 'stat /data/monitor.heartbeat && test -f /data/results.db'
-docker inspect --format '{{.State.Health.Status}}' "$(docker compose ps -q vstudy-monitor)"
-docker compose restart
-docker compose down
-```
-
-Use `docker compose stop` for maintenance. Do not delete `/opt/vstudy-app/data`; it holds the authenticated profile and database.
-
-There is no reliable browser-only way to guarantee zero human interaction forever with Google login. A truly zero-interaction design would require VStudy to provide an official API or a long-lived service credential. Do not deploy Google passwords or CAPTCHA workarounds.
-
-For a one-time local check, use `python test_vstudy_login.py`. A successful check prints `Found ... course(s)` and exits with code 0; an authentication or scraping failure exits with code 1.
+These workflows are not the primary production runtime. Railway is the current production monitor.
 
 ## Notes
 
-- The project intentionally keeps the persistent browser profile for authenticated VStudy access.
-- Telegram notifications remain optional and are enabled only when the token and chat ID are configured.
-- The SQLite database preserves the notification history and deduplicates by course code.
+- The project intentionally keeps a persistent browser profile because VStudy is accessed through an authenticated web session.
+- Telegram notifications are optional and require a valid bot token and chat ID.
+- SQLite preserves result and notification history and deduplicates by course code.
+- The monitor is designed to recover from transient VStudy and Chromium failures, but no browser automation can guarantee zero failures forever if the upstream portal or authentication requirements change.
+- Do not run multiple Selenium processes against the same persistent Chromium profile at the same time.
+- Do not store passwords, Telegram tokens, Google session data, or CAPTCHA workarounds in source control.
