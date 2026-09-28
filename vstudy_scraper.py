@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import traceback
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException, WebDriverException, StaleElementReferenceException
@@ -575,51 +576,90 @@ class VStudyScraper:
         if driver is None:
             raise RuntimeError("No browser driver available")
 
-        self._ensure_profile_page_ready(driver)
+        max_attempts = 3
+        last_error = None
 
-        print('[*] Looking for "View Details"...')
-        try:
-            self._debug_view_details_lookup(driver)
-            view_details = WebDriverWait(driver, 20).until(
-                lambda d: self._find_view_details_element(d)
-            )
-            if view_details is None:
-                raise RuntimeError('[✗] "View Details" not found')
-        except Exception as exc:
-            if SAVE_DEBUG_ARTIFACTS:
-                screenshot_path = os.path.join(os.getcwd(), 'vstudy_view_details_missing.png')
+        for attempt in range(1, max_attempts + 1):
+            try:
+                self._ensure_profile_page_ready(driver)
+
+                print(f'[*] Looking for "View Details"... attempt {attempt}/{max_attempts}')
                 try:
-                    driver.save_screenshot(screenshot_path)
-                    print(f"[DEBUG] Saved missing View Details screenshot to {screenshot_path}")
+                    self._debug_view_details_lookup(driver)
+                    view_details = WebDriverWait(driver, 10).until(
+                        lambda d: self._find_view_details_element(d)
+                    )
+                    if view_details is None:
+                        raise TimeoutException('"View Details" not found')
+                except Exception as exc:
+                    current_url = (driver.current_url or "").lower()
+                    print(f"[RECOVERY] View Details lookup failed on attempt {attempt}: {exc}")
+                    print(f"[RECOVERY] Current URL: {driver.current_url}")
+
+                    if attempt < max_attempts:
+                        print("[RECOVERY] Re-opening the VStudy profile page before retrying...")
+                        self.open_profile_page(driver)
+                        continue
+                    raise
+
+                print('[✓] "View Details" found')
+                original_url = driver.current_url
+                print('[*] Clicking "View Details"...')
+                try:
+                    view_details.click()
                 except Exception:
-                    pass
-            print(f"[DEBUG] URL when View Details failed: {driver.current_url}")
-            print(f"[DEBUG] Title when View Details failed: {driver.title}")
-            raise
+                    driver.execute_script("arguments[0].click();", view_details)
 
-        print('[✓] "View Details" found')
-        original_url = driver.current_url
-        print('[*] Clicking "View Details"...')
-        try:
-            view_details.click()
-        except Exception:
-            driver.execute_script("arguments[0].click();", view_details)
+                def _detailed_page_ready(d):
+                    current_url = (d.current_url or "").lower()
+                    page_text = (d.page_source or "").lower()
 
-        def _detailed_page_ready(d):
-            page_text = (d.page_source or "").lower()
-            course_text = any(x in page_text for x in ["student progress", "course name", "applied mathematics", "course gpa"])
-            url_changed = d.current_url != original_url
-            return url_changed or course_text
+                    # VStudy occasionally redirects the browser to another dashboard
+                    # route such as /dashboard/due-list. A URL change by itself does
+                    # not prove that the detailed profile loaded.
+                    if "/dashboard/due-list" in current_url:
+                        return False
 
-        try:
-            WebDriverWait(driver, 25).until(_detailed_page_ready)
-        except TimeoutException:
-            print('[✗] Detailed profile did not load after clicking "View Details"')
-            raise
+                    expected_markers = (
+                        "student progress",
+                        "course name",
+                        "course gpa",
+                        "applied mathematics",
+                    )
+                    return (
+                        any(marker in page_text for marker in expected_markers)
+                        or len(d.find_elements(By.XPATH, "//tr")) >= 2
+                    )
 
-        final_url = driver.current_url
-        print(f"[✓] Detailed profile opened: {final_url}")
-        return True
+                try:
+                    WebDriverWait(driver, 25).until(_detailed_page_ready)
+                except TimeoutException:
+                    print('[RECOVERY] Detailed profile did not become ready after clicking "View Details"')
+                    print(f"[RECOVERY] URL after click: {driver.current_url}")
+                    raise
+
+                final_url = driver.current_url
+                print(f"[✓] Detailed profile opened: {final_url}")
+                return True
+
+            except AuthenticationRequiredError:
+                raise
+            except Exception as exc:
+                last_error = exc
+                print(f"[RECOVERY] VStudy navigation attempt {attempt}/{max_attempts} failed: {exc}")
+                if attempt < max_attempts:
+                    print("[RECOVERY] Retrying VStudy navigation...")
+                    try:
+                        self.open_profile_page(driver)
+                    except Exception as profile_exc:
+                        print(f"[RECOVERY] Profile recovery attempt failed: {profile_exc}")
+                    continue
+                break
+
+        if last_error:
+            raise last_error
+        raise RuntimeError('Unable to open VStudy detailed profile')
+
 
     def _list_student_progress_filters(self, driver):
         print("[*] Listing Student Progress filter buttons...")
@@ -1062,22 +1102,43 @@ class VStudyScraper:
         return []
 
     def scrape_results(self):
-        try:
-            if self.driver is None:
-                self.driver = self._create_driver()
-            results = self.scrape_course_results(self.driver)
-            return results
-        except WebDriverException as exc:
-            print(f"[✗] ChromeDriver error: {exc}")
-            raise
-        except TimeoutException as exc:
-            print(f"[✗] Network timeout while loading VStudy: {exc}")
-            raise
-        except Exception as exc:
-            print(f"[✗] Scrape error: {exc}")
-            raise
-        finally:
-            self.close()
+        max_attempts = 3
+        last_error = None
+
+        for attempt in range(1, max_attempts + 1):
+            print(f"[*] Starting VStudy scrape attempt {attempt}/{max_attempts}")
+            try:
+                if self.driver is None:
+                    self.driver = self._create_driver()
+
+                results = self.scrape_course_results(self.driver)
+                return results
+
+            except AuthenticationRequiredError:
+                raise
+
+            except Exception as exc:
+                last_error = exc
+                print(f"[RECOVERY] VStudy scrape attempt {attempt}/{max_attempts} failed: {exc}")
+
+            finally:
+                self.close()
+
+            if attempt < max_attempts:
+                print("[RECOVERY] Waiting 5 seconds before a fresh browser retry...")
+                time.sleep(5)
+
+        if isinstance(last_error, WebDriverException):
+            print(f"[✗] ChromeDriver error after {max_attempts} attempts: {last_error}")
+        elif isinstance(last_error, TimeoutException):
+            print(f"[✗] Network timeout after {max_attempts} attempts: {last_error}")
+        elif last_error is not None:
+            print(f"[✗] Scrape error after {max_attempts} attempts: {last_error}")
+
+        if last_error:
+            raise last_error
+        raise RuntimeError("VStudy scraping failed without a captured exception")
+
 
     def close(self):
         if self.driver:
