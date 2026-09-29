@@ -44,7 +44,6 @@ CHROME_PID=$!
 
 exec x11vnc \
   -display "${DISPLAY_NUM}" \
-  -localhost \
   -forever \
   -shared \
   -rfbport 5900 \
